@@ -1,0 +1,10 @@
+{
+  "description": "Offers interactive educational content and resources to enhance learning for students and educators through a user-friendly online platform.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
