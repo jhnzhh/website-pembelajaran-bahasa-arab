@@ -44,6 +44,9 @@ import kalamLevel1AyyamAudioUrl from "./audio/kalam-level-1-al-ayyam.mp3";
 import { claimAudioPlayback, playExclusiveAudio, stopExclusiveAudio } from "./audioPlayback";
 import istimaTaarufIllustration from "./imports/ISTIMA_TAARUF_ILLUSTRATION.jpeg";
 import istimaAlwanIllustration from "./imports/ISTIMA_ALWAN_ILLUSTRATION.jpeg";
+import dialogIllustration from "./imports/DIALOG_ILLUSTRATION__D3BD579_.png";
+import correctSoundUrl from "./imports/correct.mp3";
+import wrongSoundUrl from "./imports/wrong.mp3";
 import qiraahTaarufIllustration from "./imports/QIRAAH_TAARUF_ILLUSTRATION.jpeg";
 import qiraahAlwanIllustration from "./imports/QIRAAH_ALWAN_ILLUSTRATION.jpeg";
 import qiraahAyyamIllustration from "./imports/QIRAAH_AL-AYYAM_ILLUSTRATION.jpeg";
@@ -66,11 +69,11 @@ import qiraahAyyamIllustration from "./imports/QIRAAH_AL-AYYAM_ILLUSTRATION.jpeg
 // ────────────────────────────────────────────────────────────────
 let _actx: AudioContext | null = null;
 const _bufs: Partial<Record<"correct" | "wrong", AudioBuffer>> = {};
+const _soundUrls = { correct: correctSoundUrl, wrong: wrongSoundUrl };
 
 function _getCtx(): AudioContext {
   if (!_actx) {
-    const AC =
-      window.AudioContext ||
+    const AC = window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     _actx = new AC();
   }
@@ -80,48 +83,37 @@ function _getCtx(): AudioContext {
 async function _loadBuf(type: "correct" | "wrong") {
   try {
     const ctx = _getCtx();
-    const res = await fetch(`/src/imports/${type}.mp3`);
-    if (!res.ok) return;
-    const ab = await res.arrayBuffer();
-    // decodeAudioData works on a suspended context — no gesture needed
-    _bufs[type] = await ctx.decodeAudioData(ab);
-  } catch {
-    // Silent — missing file or decode error
+    const res = await fetch(_soundUrls[type]);
+    if (!res.ok) throw new Error(`Efek suara gagal dimuat (${res.status}): ${_soundUrls[type]}`);
+    _bufs[type] = await ctx.decodeAudioData(await res.arrayBuffer());
+  } catch (error) {
+    console.error("Efek suara gagal dimuat:", error);
   }
 }
 
-// Self-invoking init: pre-fetch buffers and wire up the gesture listener
-(function _initSfx() {
-  if (typeof window === "undefined") return;
-
-  // Start fetching both files immediately so they are ready before first answer
-  _loadBuf("correct");
-  _loadBuf("wrong");
-
-  // iOS Safari creates AudioContext in "suspended" state and requires
-  // resume() to be called synchronously inside a native user gesture.
-  // We do it on the very first touchstart or mousedown so that by the
-  // time the user taps an answer button, the context is already running.
-  const resumeCtx = () => {
-    try {
-      _getCtx().resume();
-    } catch {}
-    document.removeEventListener("touchstart", resumeCtx);
-    document.removeEventListener("mousedown", resumeCtx);
-  };
-  document.addEventListener("touchstart", resumeCtx, { passive: true });
-  document.addEventListener("mousedown", resumeCtx);
-})();
+if (typeof window !== "undefined") {
+  void _loadBuf("correct");
+  void _loadBuf("wrong");
+}
 
 // Called synchronously inside every answer onClick handler.
 // AudioBufferSourceNode is designed to be single-use and created per play.
 function playSound(type: "correct" | "wrong") {
   try {
     const ctx = _getCtx();
-    // Also call resume() here in case the first gesture was the answer tap itself
-    if (ctx.state === "suspended") ctx.resume();
+    if (ctx.state === "suspended") void ctx.resume().catch((error: unknown) => console.error("AudioContext gagal dilanjutkan:", error));
     const buf = _bufs[type];
-    if (!buf) return; // buffer not loaded yet — silent graceful skip
+    if (!buf) {
+      void _loadBuf(type).then(() => {
+        const loadedBuffer = _bufs[type];
+        if (!loadedBuffer) return;
+        const source = ctx.createBufferSource();
+        source.buffer = loadedBuffer;
+        source.connect(ctx.destination);
+        source.start(0);
+      });
+      return;
+    }
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.connect(ctx.destination);
@@ -136,6 +128,7 @@ function playSound(type: "correct" | "wrong") {
 // ────────────────────────────────────────────────────────────────
 type Page =
   | "home"
+  | "landing"
   | "about"
   | "info"
   | "profile"
@@ -725,7 +718,7 @@ function GeomShapes() {
 function NavBar({ page, onHome, onMaterials, materialTitle = "الأَيَّامُ" }: { page: Page; onHome: () => void; onMaterials: () => void; materialTitle?: string }) {
   const [showConfirm, setShowConfirm] = useState(false);
   const labels: Record<Page, string> = {
-    home: "", about: "👤 Tentang Pembuat", info: "ℹ️ Tujuan Pembelajaran",
+    home: "", landing: "", about: "👤 Tentang Pembuat", info: "ℹ️ Tujuan Pembelajaran",
     profile: "✨ Profil Pelajar", welcome: "🌟 Selamat Datang", materials: "📚 Pilih Materi",
     mindful: "🧠 Mindful Learning",
     meaningful: `📖 Materi ${materialTitle}`,
@@ -741,7 +734,7 @@ function NavBar({ page, onHome, onMaterials, materialTitle = "الأَيَّام
   const learningPages: Page[] = ["mindful", "meaningful", "listening", "reading", "speaking", "writing", "joyful", "evaluation", "reflection", "result"];
   const showWarning = learningPages.includes(page);
 
-  if (page === "home") return null;
+  if (page === "home" || page === "landing") return null;
   return (
     <>
       <div className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-sm border-b-2 border-cyan-200 px-4 py-3 flex items-center gap-3">
@@ -878,7 +871,7 @@ function MaterialsPage({ onSelect }: { onSelect: (material: MaterialId) => void 
   );
 }
 
-function StudentWelcomePage({ profile, progress, exp, awarded, onStart, onNewProfile }: { profile: StudentProfile; progress: LearningProgress; exp: number; awarded: Record<string, true>; onStart: () => void; onNewProfile: () => void }) {
+function StudentWelcomePage({ profile, progress, exp, awarded, onStart, onNewProfile, onLanding }: { profile: StudentProfile; progress: LearningProgress; exp: number; awarded: Record<string, true>; onStart: () => void; onNewProfile: () => void; onLanding: () => void }) {
   const [showProfile, setShowProfile] = useState(false);
   const materials: { id: MaterialId; arabic: string; name: string; icon: string; color: string }[] = [
     { id: "taaruf", arabic: "التَّعَارُفُ", name: "Ta'aruf", icon: "👋", color: "border-orange-200 bg-orange-50" },
@@ -922,6 +915,7 @@ function StudentWelcomePage({ profile, progress, exp, awarded, onStart, onNewPro
         </div>
         <button onClick={onStart} className="w-full py-5 rounded-3xl bg-gradient-to-r from-cyan-500 to-purple-600 text-white text-xl font-black shadow-xl hover:scale-105 active:scale-95 transition-all" style={{ fontFamily: "Nunito, sans-serif" }}>🚀 Mulai Belajar</button>
         <button onClick={onNewProfile} className="w-full py-3 rounded-2xl bg-white border-2 border-gray-200 text-gray-500 font-bold hover:border-cyan-300 active:scale-95 transition-all">Gunakan Profil Siswa Lain</button>
+        <button onClick={onLanding} className="w-full py-3 rounded-2xl bg-white border-2 border-cyan-200 text-cyan-700 font-bold hover:bg-cyan-50 active:scale-95 transition-all">← Kembali ke Halaman Awal</button>
         {showProfile && <div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-6" onClick={() => setShowProfile(false)}><div className="bg-white rounded-3xl shadow-2xl p-6 max-w-sm w-full space-y-5 pop-in" onClick={(event) => event.stopPropagation()}><div className="text-center"><div className="text-6xl">{profile.avatar}</div><h2 className="text-2xl font-black text-gray-800">{profile.name}</h2><p className="text-gray-500">Kelas {profile.kelas}</p></div><div className="flex justify-center"><div className="w-36 h-36 rounded-full flex items-center justify-center" style={{ background: `conic-gradient(#06b6d4 ${overallPercent * 3.6}deg, #e5e7eb 0deg)` }}><div className="w-28 h-28 bg-white rounded-full flex flex-col items-center justify-center"><b className="text-3xl text-cyan-600">{overallPercent}%</b><span className="text-[10px] text-gray-400">progres belajar</span></div></div></div><div className="bg-purple-50 rounded-2xl p-4 border-2 border-purple-200"><div className="flex justify-between font-black text-purple-700"><span>Level {level}</span><span>{exp} / {nextLevelExp} EXP</span></div><div className="h-3 bg-white rounded-full overflow-hidden mt-2"><div className="h-full bg-gradient-to-r from-purple-500 to-pink-500" style={{ width: `${levelProgress}%` }} /></div><p className="text-xs text-purple-600 mt-2 text-center">{level === 10 ? "Hebat! Kamu sudah mencapai Level Maksimum! Kamu telah mencapai level tertinggi. Pertahankan semangat belajarmu!" : "Sedikit lagi menuju level berikutnya!"}</p></div><button onClick={() => setShowProfile(false)} className="w-full py-3 rounded-2xl bg-cyan-500 text-white font-black">Tutup</button></div></div>}
       </div>
     </div>
@@ -1378,11 +1372,11 @@ function PendingIllustration({ label, src }: { label: string; src?: string }) {
   return <div className={`rounded-2xl overflow-hidden border-2 border-sky-100 shadow-sm bg-sky-50 flex flex-col items-center justify-center text-center ${src ? "p-3" : "p-5"}`} style={{ minHeight: 160 }}>{src ? <img src={src} alt={label} loading="lazy" decoding="async" className="block w-full max-h-64 object-contain" /> : <><div className="w-16 h-16 rounded-2xl bg-white border-2 border-dashed border-sky-300 flex items-center justify-center text-sky-500 text-2xl">▧</div><p className="text-xs text-gray-400 mt-1">Siap dihubungkan ke ilustrasi yang akan diunggah.</p></>}<p className="font-bold text-sky-700 text-sm mt-3">{label}</p></div>;
 }
 
-function ListeningPage({ onComplete, dialogue = DIALOGUE, questions = LISTENING_QS, illustration, descriptiveText, audioFirst = false, audioSrc, rewardPrefix, onReward }: { onComplete: () => void; dialogue?: DialogueLine[]; questions?: ListeningQuestion[]; illustration?: React.ReactNode; descriptiveText?: { arabic: string; indonesian: string }; audioFirst?: boolean; audioSrc?: string; rewardPrefix?: string; onReward?: (id: string, correct: boolean) => void }) {
+function ListeningPage({ onComplete, dialogue = DIALOGUE, questions = LISTENING_QS, illustration, descriptiveText, showDialogueInitially = false, audioSrc, rewardPrefix, onReward }: { onComplete: () => void; dialogue?: DialogueLine[]; questions?: ListeningQuestion[]; illustration?: React.ReactNode; descriptiveText?: { arabic: string; indonesian: string }; showDialogueInitially?: boolean; audioSrc?: string; rewardPrefix?: string; onReward?: (id: string, correct: boolean) => void }) {
   const [phase, setPhase] = useState<"story" | "dialogue" | "questions" | "done">("dialogue");
   const [showStoryText, setShowStoryText] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
-  const [hideDialogue, setHideDialogue] = useState(true);
+  const [hideDialogue, setHideDialogue] = useState(!showDialogueInitially);
   const [showDialogueTranslation, setShowDialogueTranslation] = useState(false);
   const [qIdx, setQIdx] = useState(0);
   const [score, setScore] = useState(0);
@@ -1520,17 +1514,17 @@ function ListeningPage({ onComplete, dialogue = DIALOGUE, questions = LISTENING_
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-bold text-cyan-600 font-body">الحوار — Dialog</span>
                   <div className="flex gap-2">
-                  <button onClick={() => { if (!audioFirst) setHideDialogue((v) => !v); }} disabled={audioFirst}
+                  <button onClick={() => setHideDialogue((v) => !v)}
                     className="text-xs px-3 py-1.5 rounded-full bg-gray-100 text-gray-500 font-bold hover:bg-gray-200 transition-all">
-                    {audioFirst ? (hideDialogue ? "🔒 Dengarkan Dulu" : "✓ Teks Terbuka") : hideDialogue ? "👁 Tampilkan" : "🙈 Sembunyikan"}
+                    {hideDialogue ? "👁 Tampilkan" : "🙈 Sembunyikan"}
                   </button>
-                  <button onClick={() => setShowDialogueTranslation((v) => !v)} disabled={audioFirst && hideDialogue}
+                  <button onClick={() => setShowDialogueTranslation((v) => !v)}
                     className="text-xs px-3 py-1.5 rounded-full bg-cyan-100 text-cyan-600 font-bold hover:bg-cyan-200 transition-all">
                     🇮🇩
                   </button>
                 </div>
                 </div>
-                <AudioPlayer label="استمع إلى الحوار — Dengarkan dialog" duration={22} src={audioSrc} onComplete={() => { if (audioFirst) setHideDialogue(false); }} />
+                <AudioPlayer label="استمع إلى الحوار — Dengarkan dialog" duration={22} src={audioSrc} />
                 {!hideDialogue && (
                   <div ref={dialogueTextRef} className="space-y-2 pop-in">
                     {dialogue.map((line, i) => (
@@ -1549,7 +1543,7 @@ function ListeningPage({ onComplete, dialogue = DIALOGUE, questions = LISTENING_
                 )}
               </>}
             </div>
-            <button onClick={() => setPhase("questions")} disabled={audioFirst && hideDialogue}
+            <button onClick={() => setPhase("questions")}
               className="w-full py-4 rounded-2xl bg-gradient-to-r from-cyan-600 to-sky-500 text-white font-black text-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-40"
               style={{ fontFamily: "Nunito, sans-serif" }}>
               ❓ Jawab Pertanyaan →
@@ -1690,7 +1684,7 @@ const SPEAKING_LEVELS: SpeakingLevel[] = [
 ];
 
 const TAARUF_SPEAKING_LEVELS: SpeakingLevel[] = [
-  { level: 1, title: "Dengar & Ulangi", icon: "🔊", color: "from-rose-500 to-pink-600", desc: "Dengarkan audio, lalu ulangi pengucapannya!", prompts: [{ arabic: "عُنْوَانِي فِي شَارِعِ أَحْمَدَ يَانِي، رَقْمُ ١١.", indonesian: "Alamatku di Jalan Ahmad Yani, nomor 11.", hasAudio: true, audioSrc: kalamLevel1AudioUrl }] },
+  { level: 1, title: "Dengar & Ulangi", icon: "🔊", color: "from-rose-500 to-pink-600", desc: "Dengarkan audio, lalu ulangi pengucapannya!", prompts: [{ arabic: "عُنْوَانِي فِي شَارِعِ أَحْمَدَ يَانِي، رَقْمُ حَادِي عَشَرَ.", indonesian: "Alamatku di Jalan Ahmad Yani, nomor sebelas.", hasAudio: true, audioSrc: kalamLevel1AudioUrl }] },
   { level: 2, title: "Baca & Ucapkan", icon: "📖", color: "from-orange-500 to-amber-500", desc: "Baca kalimat ini dan ucapkan dengan jelas!", prompts: [{ arabic: "أَسْكُنُ فِي جَاكَرْتَا.", indonesian: "Aku tinggal di Jakarta.", hasAudio: false }] },
   { level: 3, title: "Perkenalkan Diri", icon: "💬", color: "from-violet-500 to-purple-600", desc: "Perkenalkan nama, identitas, tempat tinggal, dan sekolahmu secara singkat.", prompts: [{ arabic: "اِسْمِي ...، أَنَا تِلْمِيذٌ / تِلْمِيذَةٌ، أَسْكُنُ فِي ...، وَمَدْرَسَتِي فِي ...", indonesian: "Gunakan panduan Arab ini untuk memperkenalkan dirimu.", hasAudio: false }] },
 ];
@@ -2122,7 +2116,7 @@ function DialogueIllustration() {
   return (
     <div className="rounded-2xl overflow-hidden border-2 border-sky-100 shadow-sm bg-sky-50 flex items-center justify-center" style={{ minHeight: 160 }}>
       <img
-        src="/src/imports/DIALOG_ILLUSTRATION__D3BD579_.png"
+        src={dialogIllustration}
         alt="Dialog illustration"
         loading="lazy"
         decoding="async"
@@ -3735,11 +3729,12 @@ export default function App() {
       <NavBar page={page} materialTitle={getMaterialMeta(material).arabic} onHome={() => setPage("home")} onMaterials={() => setPage("materials")} />
       <StepBar page={page} />
 
-      {page === "home" && (profile ? <StudentWelcomePage profile={profile} progress={progress} exp={activeStudent?.exp ?? 0} awarded={activeStudent?.awarded ?? {}} onStart={() => setPage("materials")} onNewProfile={startNewProfile} /> : <HomePage onStart={() => setPage("profile")} onNav={(p) => setPage(p)} />)}
+      {page === "home" && (profile ? <StudentWelcomePage profile={profile} progress={progress} exp={activeStudent?.exp ?? 0} awarded={activeStudent?.awarded ?? {}} onStart={() => setPage("materials")} onNewProfile={startNewProfile} onLanding={() => setPage("landing")} /> : <HomePage onStart={() => setPage("profile")} onNav={(p) => setPage(p)} />)}
+      {page === "landing" && <HomePage onStart={() => setPage("profile")} onNav={(p) => setPage(p)} />}
       {page === "about" && <AboutPage onBack={() => setPage("home")} />}
       {page === "info" && <InfoPage onBack={() => setPage("home")} />}
       {page === "profile" && <StudentProfilePage onComplete={saveProfile} />}
-      {page === "welcome" && profile && <StudentWelcomePage profile={profile} progress={progress} exp={activeStudent?.exp ?? 0} awarded={activeStudent?.awarded ?? {}} onStart={() => setPage("materials")} onNewProfile={startNewProfile} />}
+      {page === "welcome" && profile && <StudentWelcomePage profile={profile} progress={progress} exp={activeStudent?.exp ?? 0} awarded={activeStudent?.awarded ?? {}} onStart={() => setPage("materials")} onNewProfile={startNewProfile} onLanding={() => setPage("landing")} />}
       {page === "materials" && <MaterialsPage onSelect={selectMaterial} />}
       {page === "mindful" && (material === "ayyam"
         ? <MindfulPage onSave={setAyyamMindful} onComplete={() => { awardExp("ayyam:mindful", false); setPage("meaningful"); }} />
@@ -3749,7 +3744,7 @@ export default function App() {
         : <MeaningfulMaterialPage material={material} onComplete={() => { awardExp(`${material}:material`, false); setPage("listening"); }} />)}
       {page === "listening" && (material === "ayyam"
         ? <ListeningPage rewardPrefix="ayyam:listening" onReward={awardExp} audioSrc={istimaAyyamAudioUrl} onComplete={() => { setMaharah((m) => ({ ...m, listening: true })); setPage("reading"); }} />
-        : <ListeningPage rewardPrefix={`${material}:listening`} onReward={awardExp} dialogue={material === "taaruf" ? TAARUF_DIALOGUE : ALWAN_DIALOGUE} questions={material === "taaruf" ? TAARUF_LISTENING_QS : ALWAN_LISTENING_QS} illustration={<PendingIllustration label={material === "taaruf" ? "Ilustrasi percakapan Ta'aruf" : "Ilustrasi percakapan warna"} src={material === "taaruf" ? istimaTaarufIllustration : istimaAlwanIllustration} />} audioSrc={material === "taaruf" ? istimaAudioUrl : istimaAlwanAudioUrl} audioFirst={material === "alwan"} onComplete={() => { setMaharah((m) => ({ ...m, listening: true })); setPage("reading"); }} />)}
+        : <ListeningPage rewardPrefix={`${material}:listening`} onReward={awardExp} dialogue={material === "taaruf" ? TAARUF_DIALOGUE : ALWAN_DIALOGUE} questions={material === "taaruf" ? TAARUF_LISTENING_QS : ALWAN_LISTENING_QS} illustration={<PendingIllustration label={material === "taaruf" ? "Ilustrasi percakapan Ta'aruf" : "Ilustrasi percakapan warna"} src={material === "taaruf" ? istimaTaarufIllustration : istimaAlwanIllustration} />} audioSrc={material === "taaruf" ? istimaAudioUrl : istimaAlwanAudioUrl} showDialogueInitially={material === "alwan"} onComplete={() => { setMaharah((m) => ({ ...m, listening: true })); setPage("reading"); }} />)}
       {page === "reading" && <ReadingPage material={material} onReward={awardExp} onComplete={() => { setMaharah((m) => ({ ...m, reading: true })); setPage("speaking"); }} />}
       {page === "speaking" && (material === "ayyam"
         ? <SpeakingPage rewardPrefix="ayyam:speaking" onReward={awardExp} levels={AYYAM_SPEAKING_LEVELS} onComplete={() => { setMaharah((m) => ({ ...m, speaking: true })); setPage("writing"); }} />

@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import correctAudioUrl from "./imports/correct.mp3";
-import wrongAudioUrl from "./imports/wrong.mp3";
 import situasi1AudioUrl from "./audio/situasi-1.mp3";
 import situasi2AudioUrl from "./audio/situasi-2.mp3";
 import situasi3AudioUrl from "./audio/situasi-3.mp3";
@@ -24,7 +22,7 @@ import konteksUnguAudioUrl from "./audio/konteks-nyata-warna-ungu.mp3";
 import istimaAudioUrl from "./audio/istima.mp3";
 import istimaAyyamAudioUrl from "./audio/istima-al-ayyam.mp3";
 import istimaAlwanAudioUrl from "./audio/istima-alwan.mp3";
-import { claimAudioPlayback, playExclusiveAudio, stopExclusiveAudio } from "./audioPlayback";
+import { claimAudioPlayback, playExclusiveAudio, playFeedbackSound, stopExclusiveAudio } from "./audioPlayback";
 import istimaTaarufIllustration from "./imports/ISTIMA_TAARUF_ILLUSTRATION.jpeg";
 import istimaAlwanIllustration from "./imports/ISTIMA_ALWAN_ILLUSTRATION.jpeg";
 import situasi1Illustration from "./imports/SITUASI_1_ILLUSTRATION.jpeg";
@@ -93,11 +91,7 @@ const DAYS: VocabItem[] = [
 ];
 
 function playFeedback(correct: boolean) {
-  try {
-    void new Audio(correct ? correctAudioUrl : wrongAudioUrl).play();
-  } catch {
-    // Feedback visual remains available when audio playback is blocked.
-  }
+  playFeedbackSound(correct);
 }
 
 const TAARUF_SITUATIONS = [
@@ -448,7 +442,7 @@ export function MeaningfulMaterialPage({ material, onComplete }: { material: Mat
   const [grammarSeen, setGrammarSeen] = useState(material !== "alwan");
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
-  }, [index]);
+  }, [grammarSeen, index]);
   const total = material === "taaruf" ? TAARUF_SITUATIONS.length : COLORS.length;
   const next = () => index + 1 < total ? setIndex((i) => i + 1) : onComplete();
   if (material === "taaruf") {
@@ -498,7 +492,6 @@ const LISTENING_QUESTIONS = {
 } as const;
 
 export function ListeningMaterialPage({ material, onComplete }: { material: MaterialId; onComplete: () => void }) {
-  const [heard, setHeard] = useState(false);
   const [question, setQuestion] = useState(0);
   const [score, setScore] = useState(0);
   const qs = LISTENING_QUESTIONS[material];
@@ -507,12 +500,11 @@ export function ListeningMaterialPage({ material, onComplete }: { material: Mate
   const audioSrc = material === "alwan" ? istimaAlwanAudioUrl : material === "ayyam" ? istimaAyyamAudioUrl : istimaAudioUrl;
   return <Shell gradient="from-sky-50 to-cyan-50"><Header icon="🎧" title="الِاسْتِمَاعُ — Istimā'" subtitle="Dengarkan percakapan dengan saksama sebelum menjawab." gradient="from-cyan-600 to-sky-500" />
     <IllustrationSlot label={material === "alwan" ? "Ilustrasi deskripsi tas sekolah" : "Ilustrasi percakapan Ta'aruf"} src={material === "alwan" ? istimaAlwanIllustration : material === "taaruf" ? istimaTaarufIllustration : undefined} />
-    <AudioBox label={material === "alwan" ? "Deskripsi tas sekolah" : "Percakapan lengkap"} src={audioSrc} onComplete={() => setHeard(true)} />
+    <AudioBox label={material === "alwan" ? "Deskripsi tas sekolah" : "Percakapan lengkap"} src={audioSrc} />
     <div className="bg-white rounded-3xl p-5 border-2 border-cyan-200 shadow-md space-y-3">
-      {(material !== "alwan" || heard) && <div className="space-y-2">{DIALOGUES[material].map(([arabic, translation], i) => <div key={i} className={`rounded-2xl p-3 max-w-[88%] ${i % 2 ? "ml-auto bg-green-50 border border-green-200" : "bg-cyan-50 border border-cyan-200"}`}><Arabic className="block text-lg text-right font-bold">{arabic}</Arabic><p className="text-xs text-gray-500 mt-1">{translation}</p></div>)}</div>}
-      {!heard && <p className="text-xs text-center text-gray-400">Dengarkan audio sampai selesai untuk membuka pertanyaan.</p>}
+      <div className="space-y-2">{DIALOGUES[material].map(([arabic, translation], i) => <div key={i} className={`rounded-2xl p-3 max-w-[88%] ${i % 2 ? "ml-auto bg-green-50 border border-green-200" : "bg-cyan-50 border border-cyan-200"}`}><Arabic className="block text-lg text-right font-bold">{arabic}</Arabic><p className="text-xs text-gray-500 mt-1">{translation}</p></div>)}</div>
     </div>
-    {heard && !done && q && <div className="space-y-3"><div className="text-sm font-bold text-cyan-600 text-center">Pertanyaan {question + 1}/{qs.length} · Skor {score}</div><ChoiceQuestion key={question} question={q[0]} meaning={q[1]} options={[...q[2]]} answer={q[3]} onDone={(correct) => { if (correct) setScore((s) => s + 1); setTimeout(() => setQuestion((n) => n + 1), 900); }} /></div>}
+    {!done && q && <div className="space-y-3"><div className="text-sm font-bold text-cyan-600 text-center">Pertanyaan {question + 1}/{qs.length} · Skor {score}</div><ChoiceQuestion key={question} question={q[0]} meaning={q[1]} options={[...q[2]]} answer={q[3]} onDone={(correct) => { if (correct) setScore((s) => s + 1); setTimeout(() => setQuestion((n) => n + 1), 900); }} /></div>}
     {done && <div className="bg-white rounded-3xl p-7 text-center shadow-xl space-y-4"><div className="text-5xl">🏆</div><h3 className="text-2xl font-black">Istimā' Selesai!</h3><p className="text-cyan-600 font-black text-3xl">{score}/{qs.length}</p><ContinueButton onClick={onComplete}>Lanjut ke Kalām →</ContinueButton></div>}
   </Shell>;
 }
